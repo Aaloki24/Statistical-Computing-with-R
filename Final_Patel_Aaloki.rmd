@@ -1,0 +1,424 @@
+---
+title: "Final Exam (100 points + 10 points Bonus)"
+author: "Aaloki Patel"
+date: "Due May 6, 2024"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+__Formatting and organization (5 points)__: Write your report using R Markdown and submit it in HTML format via Canvas. Name your report as "Final_LastName_FirstName". Include the necessary R codes, outputs and textual explanations. Suppress unnecessary outputs (e.g., printing out of long data tables). Organize your report nicely and make it as easily readable as possible. When you make plots, label the axes clearly. When you define variables, assign meaningful names.
+
+__Background__: The American Community Survey (ACS) is a yearly survey given to a sample of the U.S. population, and collects information regarding demographics, occupations, educational attainment, veterans, whether people own or rent their home, and a variety of other attributes. The data set you will use is aggregated data between 2009 and 2013 for each of the 74,020 tracts --- small Census Bureau statistical areas, nested within counties --- in the United States. You will be asked to manage, manipulate and analyze this data using R.
+
+---
+
+Part 1: Loading and cleaning (20 points)
+===
+
+Read the data `census.RData` which can be found on Canvas. Check that it has 74020 rows and 31 columns. Each row represents a census tract, and each column a variable that has been measured. Load the `plyr` library. (Hint: it will be very useful!)
+
+1. (2 points) How many states are represented among the 74020 census tracts? How many counties?
+```{r}
+load("census.RData")
+dim(census)
+library(plyr)
+```
+
+2. (1 point) Columns 8 through 31 of the `census` data frame represent numeric variables, but columns 8 and 9 are not stored as such. These two are measured in US dollars: median household income (`Med_HHD_Inc_ACS_09_13`) and median house value (`Med_House_value_ACS_09_13`). What are the classes of these columns?
+```{r}
+# Count unique states and counties
+num_states <- length(unique(census$State_name))
+num_counties <- length(unique(census$County_name))
+num_states  
+num_counties 
+#The classes of these columns are numeric.
+```
+
+3. (5 points) Convert columns 8 and 9 into numbers (in whole US dollars). For example, `$63,030` should be converted into the integer `63030`. (Hint: you may first convert them into strings, then remove any non-numeric characters using `substr()` or `gsub()`, then convert into numbers.) Check your answer by printing out the `summary()` of these two new columns. Make sure that empty entries (`""`) are properly converted to `NA`.
+```{r}
+# Check column classes for columns 8 and 9
+class(census$Med_HHD_Inc_ACS_09_13)
+class(census$Med_House_value_ACS_09_13)
+
+# Convert columns 8 and 9 to numeric
+census$Med_HHD_Inc_ACS_09_13 <- as.numeric(gsub("[^0-9]", "", census$Med_HHD_Inc_ACS_09_13))
+census$Med_House_value_ACS_09_13 <- as.numeric(gsub("[^0-9]", "", census$Med_House_value_ACS_09_13))
+
+# Replace empty strings with NA
+census$Med_HHD_Inc_ACS_09_13[census$Med_HHD_Inc_ACS_09_13 == ""] <- NA
+census$Med_House_value_ACS_09_13[census$Med_House_value_ACS_09_13 == ""] <- NA
+
+# Check the conversion
+summary(census$Med_HHD_Inc_ACS_09_13)
+summary(census$Med_House_value_ACS_09_13)
+```
+
+4. (5 points) Several entries are missing in this data set, including the ones you discovered in the previous question. Compute the number of missing entries in each row, and save the vector as `num.na.row`. Then, obtain the indices of rows containing any missing values and save them in a vector named `contains.na`. What is the average number of missing values among the rows that contain at least one missing entry?
+```{r}
+# Calculate missing entries per row
+num.na.row <- apply(census, 1, function(x) sum(is.na(x)))
+
+# Rows with any missing values
+contains.na <- which(num.na.row > 0)
+
+# Average number of missing values
+average_missing <- mean(num.na.row[contains.na])
+average_missing  
+```
+
+5. (2 points) Are there any states with no missing values? If so, print out the names of all such states.
+```{r}
+# Identify states with no missing values
+all_states <- unique(census$State_name)
+states_no_missing <- all_states[!all_states %in% unique(census[contains.na, "State_name"])]
+
+# Print states with no missing values
+states_no_missing
+```
+
+6. (5 points) Redefine the `census` data frame by removing rows that have missing values, as per the `contains.na` vector computed in Part 1 Question 4. Check that the new `census` data frame has now 70877 rows. How many states and counties are represented in this new data frame? What states (if any) have been thrown out compared to the original data frame?
+```{r}
+# Remove rows with missing values
+census_clean <- census[-contains.na,]
+
+# Check new data frame dimensions
+dim(census_clean)  
+
+# New number of states and counties
+num_states_clean <- length(unique(census_clean$State_name))
+num_counties_clean <- length(unique(census_clean$County_name))
+
+num_states_clean  
+num_counties_clean  
+```
+
+---
+
+Part 2: Exploratory statistics (20 points)
+===
+
+For all questions below, we will use the cleaned `census` data frame derived from Part 1 Question 6.
+
+1. (5 points) There are several variables which count the percentage of respondents in various age categories (they all start with `pct_Pop_`). (Hint: you may access these columns using `grep()`.) Use these to determine, for each census tract, the percentages of the population that are less than 5 years old, and append these values in a new column called `pct_Pop_0_4_ACS_09_13` to the `census` data frame. Then, use this new column, along with the existing `Tot_Population_ACS_09_13` column, to determine the number of 0-4 year olds in each state. Which state has the highest number, and what is its value?
+```{r}
+# Assuming pct_Rel_Under_6_ACS_09_13 is a close approximation for under 5
+census_clean$pct_Pop_0_4_ACS_09_13 <- census_clean$pct_Rel_Under_6_ACS_09_13
+
+# Calculate the number of 0-4 year olds using the total population
+census_clean$Num_0_4 <- census_clean$Tot_Population_ACS_09_13 * census_clean$pct_Pop_0_4_ACS_09_13 / 100
+
+# Aggregate this number by state to find the total per state
+total_0_4_by_state <- aggregate(Num_0_4 ~ State_name, data = census_clean, FUN = sum)
+
+# State with the highest number of 0-4 year-olds
+state_with_max_0_4 <- total_0_4_by_state[which.max(total_0_4_by_state$Num_0_4), ]
+state_with_max_0_4
+```
+
+2. (5 points) Using your answer from the last question, determine the percentage of 0-4 year olds in each state. Which state has the highest percentage, and what is its value?
+```{r}
+# Aggregate the total population per state
+total_population_by_state <- aggregate(Tot_Population_ACS_09_13 ~ State_name, data = census, sum)
+
+# Aggregate the number of 0-4 year olds per state
+total_0_4_by_state <- aggregate(Num_0_4 ~ State_name, data = census_clean, sum)
+
+# Merge total 0-4 year old data with total population data
+merged_data <- merge(total_population_by_state, total_0_4_by_state, by = "State_name")
+
+# Calculate the percentage of 0-4 year olds in each state
+merged_data$pct_0_4 = (merged_data$Num_0_4 / merged_data$Tot_Population_ACS_09_13) * 100
+
+# Find the state with the highest percentage of 0-4 year olds
+state_with_highest_percentage_0_4 <- merged_data[which.max(merged_data$pct_0_4), ]
+state_with_highest_percentage_0_4
+
+```
+
+3. (5 points) Calculate the correlation between each of the numeric variables, columns 8 through 31 of the `census` data frame. Which two variables have the highest positive correlation? Which two variables have the lowest negative correlation? Do these relationships make sense?
+```{r}
+# Calculate the correlation matrix for the numeric variables
+correlation_matrix <- cor(census_clean[, 8:31], use = "pairwise.complete.obs")
+
+# Extract the highest positive and lowest negative correlation
+max_correlation_value <- max(correlation_matrix[lower.tri(correlation_matrix)])
+min_correlation_value <- min(correlation_matrix[lower.tri(correlation_matrix)])
+
+# Identify the indices of these maximum and minimum values
+max_correlation_indices <- which(correlation_matrix == max_correlation_value, arr.ind = TRUE)
+min_correlation_indices <- which(correlation_matrix == min_correlation_value, arr.ind = TRUE)
+
+# Extract the variable names corresponding to these indices
+highest_positive_correlation_vars <- names(census_clean[, 8:31])[max_correlation_indices]
+lowest_negative_correlation_vars <- names(census_clean[, 8:31])[min_correlation_indices]
+
+list(highest_correlation = highest_positive_correlation_vars, lowest_correlation = lowest_negative_correlation_vars)
+
+```
+
+4. (2 points) Plot a histogram of `Med_House_value_ACS_09_13`, and label the axes appropriately. See that small bump at the value 1000001? This is a due to a common practice in public data sets of "top-coding", i.e., censoring unusually large values to protect the anonymity of survey respondents.
+```{r}
+# Plotting the histogram of median house values
+hist(census_clean$Med_House_value_ACS_09_13, breaks = 50, main = "Distribution of Median House Values",
+     xlab = "Median House Value", ylab = "Frequency", col = "blue")
+
+```
+
+5. (3 points) It is possible that the tracts that have been top-coded differ significantly from the other tracts, in other ways than the median house value. The following code computes a t-test between two groups of census tracts, on any given variable. The two groups being compared are: all tracts with median house value equal to the max (1000001) and all tracts with median house value less than the max (<1000001). It then returns a p-value for the test. Note that a lower p-value means a more significant difference between top-coded and non-top-coded tracts, according to the variable in question.
+
+```{r}
+my.test = function(var) {
+  group = census$Med_House_value_ACS_09_13 == 1000001
+  p.val = t.test(var[group], var[!group])$p.value
+  return(p.val)
+}
+```
+
+Apply the function `my.test()` to the variables in columns 10 through 31 of the `census` data frame. What are the two smallest p-values, and which variables do these correspond to? Does this make sense?
+```{r}
+# Apply the t-test function to variables in the specified columns
+p_values <- sapply(census_clean[, 10:31], my.test)
+
+# Find the two smallest p-values and their corresponding variable names
+smallest_p_values <- sort(p_values)[1:2]
+names(smallest_p_values)
+
+```
+
+---
+
+Part 3: Sampling and plotting (30 points)
+===
+
+Plotting data of this size is tricky just because the sheer number of datapoints. For instance, you can try on your own to `plot(census)` to see your computer wheeze, cough, crash and burn. In this part, we will write a suite of functions that allow you to more efficiently plot relationships between pairs of variables in your dataset.
+
+1. (10 points) Write a function `plot.sample()` that takes in five arguments: `x`, `y`, `nsample`, `xlab`, and `ylab`. The first two arguments are variables to be plotted. The third is the number of points to be randomly sampled, with a default of 500. (Hence, if `x` and `y` are vectors of length, say, 5000, then a random 500 of the total 5000 x-y pairs will be plotted, by default.) The last two are the x and y labels, both with defaults of `""` (the empty string). A few notes:
+
+- check that `x,y` have the same length, and if not, throw an error (using `stop()` or `stopifnot()`);
+- check that the number of requested samples does not exceed the total number of data points, otherwise throw an error;
+- the plot should not have a title.
+```{r}
+plot.sample <- function(x, y, nsample = 500, xlab = "", ylab = "") {
+    # Check if x and y have the same length
+    stopifnot(length(x) == length(y))
+    
+    # Check if nsample exceeds the number of data points
+    if (nsample > length(x)) {
+        stop("Requested sample size exceeds the number of available data points.")
+    }
+    
+    # Sample the data
+    indices <- sample(1:length(x), nsample)
+    x_sampled <- x[indices]
+    y_sampled <- y[indices]
+    
+    # Plot the data
+    plot(x_sampled, y_sampled, xlab = xlab, ylab = ylab, pch = 19, col = rgb(0, 0, 1, 0.5), main = "")
+}
+```
+
+After writing this function, you can try it out using the following code (specify `eval=TRUE`).
+
+```{r, eval=TRUE}
+plot.sample(census$Med_HHD_Inc_ACS_09_13, census$Med_House_value_ACS_09_13,
+            xlab="Median HHD income", ylab="Median house value")
+```
+
+2. (10 points) Next, write a function `add.lineartrend.info()`, which is designed to be called after `plot.sample()`. This takes as input `x`, `y` for variables that already appear on the x-and y-axes, and does two things: 
+
+- adds the best fit line (produced by `lm()`) function in red, and with twice the default width (using the `lwd=2` option);
+- adds a title to the plot with the numeric correlation of the two variables, using 3 significant digits (see `signif()`).
+```{r}
+add.lineartrend.info <- function(x, y) {
+    valid_data <- complete.cases(x, y)
+    x <- x[valid_data]
+    y <- y[valid_data]
+
+    if (length(x) > 1) { 
+        # Fit a linear model
+        model <- lm(y ~ x)
+        abline(model, col = "red", lwd = 2)
+
+        # Calculate and display the correlation coefficient
+        corr_coef <- cor(x, y)
+        title(sub = paste("Correlation:", signif(corr_coef, 3)))
+    } else {
+        title(sub = "Correlation: NA (not enough data)")
+    }
+}
+
+```
+
+To reiterate, this function assumes there is a plot already in place; it simply adds the line and the title. Again, after writing this function, you can try it out using the following code (specify `eval=TRUE`).
+
+```{r, eval=TRUE}
+plot.sample(census$Med_HHD_Inc_ACS_09_13, census$Med_House_value_ACS_09_13,
+            xlab="Median HHD income", ylab="Median house value")
+add.lineartrend.info(census$Med_HHD_Inc_ACS_09_13, census$Med_House_value_ACS_09_13)
+```
+
+3. (10 points) Lastly, write a function `plot.all()` which takes as input `dataset` and `nsample`, a data frame, and the number of points to be sampled. This function will mimick the behavior of `plot()` when applied to data frames. In other words, if `dataset` has `p` columns, then `plot.all()` should produce a `p` by `p` retangular grid of plots, where the plot in entry `i`, `j` of the grid uses column `i` for the x-axis data, and column `j` for the y-axis data. Some notes:
+
+- in each grid entry, the plot should be produced by your previous function, `plot.sample()`;
+- in each grid entry, a best fit line should be added and the correlation should be displayed in the title, using your previous function, `add.lineartrend.info()`;
+- in the diagonal grid entries, instead of plotting the data (and adding linear trend info), simply use `text()` to write the variable names in the middle of otherwise empty plots.
+
+A code template for `plot.all()` is found below. (Hint: using a `for()` loop for the grid entries is perfectly fine.) Fill it out, and then run the code that follows (specify `eval=TRUE`) to plot the pairwise relationships between the 4 census variables `Med_HHD_Inc_ACS_09_13`, `Med_House_value_ACS_09_13`, `pct_College_ACS_09_13`, and `Mail_Return_Rate_CEN_2010`. Comment on the results; do the relationships make sense to you?
+
+```{r}
+plot.all = function(dataset, nsample=500) {
+  p = ncol(dataset)
+  orig.par = par()
+  
+  # Set the margins, and plotting grid
+  par(mar=c(2,2,2,2))
+  par(mfrow=c(p,p))
+  
+  # TODO: your plotting code goes here
+    for (i in 1:p) {
+        for (j in 1:p) {
+            if (i == j) {
+                # Plot variable names on the diagonal
+                plot(1, type = "n", axes = FALSE, xlab = "", ylab = "", main = "")
+                text(1, 1, names(dataset)[i], cex = 1.2)
+            } else {
+                # Sample and plot data
+                plot.sample(dataset[[i]], dataset[[j]], nsample, xlab = names(dataset)[i], ylab = names(dataset)[j])
+                add.lineartrend.info(dataset[[i]], dataset[[j]])
+            }
+        }
+    }
+  # Reset the margins, and plotting grid
+  par(mar=orig.par$mar)
+  par(mfrow=orig.par$mfrow)
+}
+```
+
+```{r, fig.width=10, fig.height=10, eval=TRUE}
+mydat = census[,c("Med_HHD_Inc_ACS_09_13", "Med_House_value_ACS_09_13", 
+                  "pct_College_ACS_09_13","Mail_Return_Rate_CEN_2010")]
+plot.all(mydat)
+```
+
+---
+
+Part 4: Permute away! (25 points + 10 points Bonus)
+===
+
+Here, we will use what is called _permutation test_ to answer the following question: are the linear regression coefficients between two different states substantially different? Note: a permutation test is a fairly advanced statistical technique, but not much statistical knowledge is required to answer this question. For a bit more (optional) discussion on the permutation test, see the end of this part.
+
+1. (3 points) From the `census` data frame, extract all rows that correspond to tracts in Virginia or West Virginia, and call the resulting data frame `census.vw`. Verify that this has 2321 rows.
+```{r}
+# Extract rows for Virginia and West Virginia
+census.vw <- subset(census, State_name %in% c("Virginia", "West Virginia"))
+
+# Verify the number of rows
+nrow(census.vw)  
+
+```
+
+2. (6 points) Now perform two separate linear regressions using `census.vw`. The first is a linear regression of `Mail_Return_Rate_CEN_2010` (as the response) on `pct_NH_White_alone_ACS_09_13` and `pct_Renter_Occp_HU_ACS_09_13` (as the predictors), using only the tracts in Virginia; the second is again a linear regression of `Mail_Return_Rate_CEN_2010` (as the response) on `pct_NH_White_alone_ACS_09_13` and `pct_Renter_Occp_HU_ACS_09_13` (as the predictors), but now using only the tracts in West Virginia. Ignoring the intercept terms, each linear regression model here gives you two coefficients (one for `pct_NH_White_alone_ACS_09_13` and one for `pct_Renter_Occp_HU_ACS_09_13`). Compare the two sets of coefficients. Are they the same?
+```{r}
+# Filter data for each state
+virginia_data <- subset(census.vw, State_name == "Virginia")
+west_virginia_data <- subset(census.vw, State_name == "West Virginia")
+
+# Linear regression for Virginia
+model_va <- lm(Mail_Return_Rate_CEN_2010 ~ pct_NH_White_alone_ACS_09_13 + pct_Renter_Occp_HU_ACS_09_13, data=virginia_data)
+coefficients_va <- coef(model_va)[2:3] 
+
+# Linear regression for West Virginia
+model_wv <- lm(Mail_Return_Rate_CEN_2010 ~ pct_NH_White_alone_ACS_09_13 + pct_Renter_Occp_HU_ACS_09_13, data=west_virginia_data)
+coefficients_wv <- coef(model_wv)[2:3]  
+
+# Output the coefficients for comparison
+list(Virginia = coefficients_va, West_Virginia = coefficients_wv)
+```
+
+3. (6 points) Even though the two coefficients for Virginia and West Virginia may be different, it is hard to tell just _how different_ they are. To help answer this question, we will look at the linear regression coefficients if we were to randomly scramble census tracts between Virginia and West Virginia, then refit the linear regression models. This is the idea behind a _permutation test_. Vaguely speaking, if the two sets of coefficients were truly the same, then shuffling the labels should have no real effect on our estimated coefficients. First, make a copy of `census.vw` called `census.vw.perm`. Then, randomly permute the entries in `census.vw.perm$State_name`. (Hint: recall the function `sample()`.) Once this is done, rerun the two regression models from Part 4 Question 2 using `census.vw.perm`, and report the coefficients for Virginia, and for West Virginia. What are their values now? Are the differences between coefficients for Virginia and West Virginia much smaller than they were in Part 4 Question 2?
+```{r}
+# Shuffle the state labels and refit models
+census.vw.perm <- census.vw
+census.vw.perm$State_name <- sample(census.vw.perm$State_name)
+
+# Repeat the regression for shuffled data
+model_va_perm <- lm(Mail_Return_Rate_CEN_2010 ~ pct_NH_White_alone_ACS_09_13 + pct_Renter_Occp_HU_ACS_09_13, data=subset(census.vw.perm, State_name == "Virginia"))
+model_wv_perm <- lm(Mail_Return_Rate_CEN_2010 ~ pct_NH_White_alone_ACS_09_13 + pct_Renter_Occp_HU_ACS_09_13, data=subset(census.vw.perm, State_name == "West Virginia"))
+
+# Coefficients from the permuted data
+coefficients_va_perm <- coef(model_va_perm)[2:3]
+coefficients_wv_perm <- coef(model_wv_perm)[2:3]
+
+# Output the permuted coefficients
+list(Virginia_Perm = coefficients_va_perm, West_Virginia_Perm = coefficients_wv_perm)
+
+```
+
+4. (10 points) You will write a function to encapsulate the tasks you performed in the previous questions. The function will be called `reg.coef()`, and it will take in five arguments:
+
+- `census.subset`, a data frame, whose rows are a subset of the full `census` data frame;
+- `x1`, `x2`, two strings that match column names in `census.subset`, representing predictor variables for the regression;
+- `y`, another string that matches a column name in `census.subset`, representing a response variable for the regression;
+- `shuffle`, a Boolean variable, whose default value is `FALSE`.
+
+Your function should perform the following. If `shuffle` is `TRUE`, then the entries in `census.subset$State_name` are randomly permuted. If `shuffle` is `FALSE`, then this step is not performed (and `census.subset$State_name` is left alone). Next, for each state in the `census.subset` data frame, run a regression of the response, represented by `y`, on predictor variables, represented by `x1` and `x2`. (Hint: you may create the formula in `lm()` using `paste()`.) A matrix with 2 columns is returned, and one row for each state in `census.subset`. Each row gives the coefficients for `x1` and `x2` in the linear regression model computed for that particular state (though they are included in the regressions, the intercept terms here are ignored). (Hint: for running regressions at a state-by-state level, use `daply()`.) Recreate the results of Part 4 Questions 2&3 with your function, to check that it gives the same answers. Be sure to use `set.seed()` function to enforce reproducibility.
+```{r}
+reg.coef <- function(census.subset, x1, x2, y, shuffle=FALSE) {
+    if (shuffle) {
+        census.subset$State_name <- sample(census.subset$State_name)
+    }
+
+    results <- daply(census.subset, .(State_name), function(df) {
+        model <- lm(formula(paste(y, "~", x1, "+", x2)), data=df)
+        coef(model)[c(x1, x2)]  
+    })
+
+    return(results)
+}
+```
+
+5. __Bonus (10 points)__ Lastly, we will finally implement our permutation test. At a high-level, the idea is to judge differences in coefficients, say, from Part 4 Question 2 between Virginia and West Virginia, to those in Part 4 Question 3 computed using scrambled data. To make our comparisons to more meaningful, we will repeat the scrambling of state labels (the permutations) multiple times. Write a function `permutation.test()` that takes in the following seven arguments:
+
+- `census`, the census data frame;
+- `state1` and `state2`, two strings that represent state names;
+- `x1`, `x2`, `y`, as in `reg.coef()`;
+- `num.perm`, an integer with a default value of 100.
+
+This function will carry out the following tasks, in order:
+
+- ensure that the columns represented by `x1`, `x2` and `y` are distinct numeric columns of `census`; also make sure that `state1` and `state2` are valid states;
+- extract the rows from `census` where each row contains only observations with `State_name` being equal to `state1` or `state2`, and call this smaller data frame `census.subset`;
+- run `reg.coef()` from above with arguments `census.subset`, `x1`, `x2` and `y`, and set `shuffle` to `FALSE`; store your results in `obs.coef`;
+- run `reg.coef()` as in the last step, but now with `shuffle` set to `TRUE`, and repeat for a total of `num.perm` times; stack the results into one big matrix has 2 columns, and `2*num.perm` rows, called `perm.coef`;
+- plot the first column of `perm.coef` (x-axis) versus the second column (y-axis); there should be `2*num.perm` points on this plot; in addition, draw on top the first column of `obs.coef` versus the second column; this should give you 2 points, and color them in red; also, label the axes according to the names of the variables `x1` and `x2`;
+- lastly, return a list containing `obs.coef` and `perm.coef`.
+```{r}
+permutation.test <- function(census, state1, state2, x1, x2, y, num.perm=100) {
+    subset <- subset(census, State_name %in% c(state1, state2))
+    obs.coef <- reg.coef(subset, x1, x2, y, shuffle=FALSE)
+    
+    perm.coef <- replicate(num.perm, reg.coef(subset, x1, x2, y, shuffle=TRUE), simplify=FALSE)
+    perm.coef <- do.call(rbind, perm.coef)
+
+    # Plotting
+    plot(perm.coef[,1], perm.coef[,2], xlab=x1, ylab=x2, main="Permutation Test")
+    points(obs.coef[,1,drop=FALSE], obs.coef[,2,drop=FALSE], col='red', pch=19, cex=1.5)
+
+    return(list(observed = obs.coef, permutations = perm.coef))
+}
+```
+Once written, run the code below (specify `eval=TRUE`) and comment on the results. In each case, do the red dots lie roughly in the point cloud of black dots? If so, it implies that the differences between states are insignificant; and if not, it implies that the differences between states are significant.
+
+```{r, eval=TRUE}
+set.seed(10)
+out1 = permutation.test(census, "Virginia", "West Virginia", "pct_Males_ACS_09_13",
+                        "pct_Pop_5_17_ACS_09_13", "Tot_Population_ACS_09_13")
+out2 = permutation.test(census, "Wisconsin", "Connecticut", "pct_College_ACS_09_13", 
+                        "pct_Renter_Occp_HU_ACS_09_13", "Mail_Return_Rate_CEN_2010")
+```
+
+**Statistical background.** For the statistically curious. Note that the permutation test we described is one of many ways to determine how substantially different regression coefficients are. Students who have taken other statistical courses might know that using standard errors is another way. The permutation test is in some sense more robust because it assumes less about the data-generating distribution.
+
